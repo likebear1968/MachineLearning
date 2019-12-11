@@ -3,28 +3,33 @@
 
 import numpy as np
 
-def to_dummy(data, idx, vals, has_nan=False):
+def to_dummy(data, idx, cord=None, has_nan=False):
     '''
     区分値コードをダミー変数に変換する。
     data：データ行列
     idx：対象列ID
-    vals：区分値リスト
+    cord：区分値リスト
     戻り値：ダミー変数化した行列
     '''
-    col = len(vals)
-    if has_nan: col += 1
-    dummies = np.zeros((data.shape[0], col), dtype=int)
-    column = data[:, idx].astype(str)
-    for i, v in enumerate(column):
-        if v == 'nan':
-            dummies[i, -1] = 1
+    ndat = np.array(data).reshape(-1, np.shape(data)[-1])[:, idx]
+    dmmy = np.array([] * ndat.shape[0]).reshape(ndat.shape[0], -1)
+    crds = []
+    if has_nan:
+        mask = ndat == ndat
+    else:
+        mask = ndat != 'nan'
+    for i in range(ndat.shape[-1]):
+        if cord is None:
+            c = np.unique(ndat[:, i][mask[:, i]])
         else:
-            #if v.replace('.', '').replace('-', '').isdigit(): v = str(int(float(v)))
-            if v not in vals:
-                print(f'{v}は区分値リストに存在しません。')
-            else:
-                dummies[i, vals.index(v)] = 1
-    return dummies
+            c = np.array(cord)
+        col = np.zeros((ndat.shape[0], len(c)))
+        for j, v in enumerate(c):
+            col[:, j][ndat[:, i] == v] = 1
+        crds.append(c.tolist())
+        dmmy = np.append(dmmy, col, axis=1)
+        
+    return crds, dmmy
 
 def scaling(data, idx):
     '''
@@ -56,13 +61,22 @@ def imputing(data, idx, strategy=0):
         ndat[:, i][np.isnan(ndat[:, i])] = vals[i]
     return ndat
 
-def describe(data, idx):
+def to_float(data):
+    for i in range(np.shape(data)[-1]):
+        try:
+            data[:, i].astype(float)
+        except ValueError:
+            data[:, i] = 0
+    return data.astype(float)
+
+def describe(data, idx=None):
     '''
     統計情報を取得する。
     data：データ行列
     idx：対象列IDリスト
     戻り値：nan以外のデータ件数
     　　　　nanのデータ件数
+        　　ユニーク件数
     　　　　最小値
         　　最大値
           　平均値
@@ -71,20 +85,29 @@ def describe(data, idx):
         　　下限値(25%タイル - IQR)
           　上限値(75%タイル + IQR)
     '''
-    ndat = data[:, idx].astype(float)
-    stat = np.zeros((9, len(idx)))
-    nans = np.count_nonzero(np.isnan(ndat), axis=0)
+    row = 10
+    if idx is None:
+        if np.ndim(data) == 1:
+            idx = list(range(len(data)))
+        else:
+            idx = list(range(np.shape(data)[-1]))
+    ndat = np.array(data).reshape(-1, np.shape(data)[-1])[:, idx].astype(str)
+    stat = np.zeros((row, len(idx)))
+    mask = ndat == 'nan'
+    nans = np.count_nonzero(mask, axis=0)
     stat[0][...] = ndat.shape[0] - nans                      # nan以外のデータ件数
     stat[1][...] = nans                                      # nanのデータ件数
-    stat[2][...] = np.nanmin(ndat, axis=0)                   # 最小値
-    stat[3][...] = np.nanmax(ndat, axis=0)                   # 最大値
-    stat[4][...] = np.nanmean(ndat, axis=0)                  # 平均値
-    stat[5][...] = np.nanmedian(ndat, axis=0)                # 中央値
-    stat[6][...] = np.nanstd(ndat, axis=0)                   # 標準偏差
+    stat[2][...] = [len(np.unique(ndat[:, i][~mask[:, i]])) for i in range(len(idx))] # ユニーク件数
+    ndat = to_float(ndat)
+    stat[3][...] = np.nanmin(ndat, axis=0)                   # 最小値
+    stat[4][...] = np.nanmax(ndat, axis=0)                   # 最大値
+    stat[5][...] = np.nanmean(ndat, axis=0)                  # 平均値
+    stat[6][...] = np.nanmedian(ndat, axis=0)                # 中央値
+    stat[7][...] = np.nanstd(ndat, axis=0)                   # 標準偏差
     q25, q75 = np.nanpercentile(ndat, q=[25, 75], axis=0)
     iqr = (q75 - q25) * 1.5
-    stat[7][...] = q25 - iqr                                 # 下限値
-    stat[8][...] = q75 + iqr                                 # 上限値
+    stat[8][...] = q25 - iqr                                 # 下限値
+    stat[9][...] = q75 + iqr                                 # 上限値
     return stat
 
 def unique(data, idx):
